@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DefectScan — Manufacturing QC AI</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600;700&family=Barlow+Condensed:wght@700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0a0c0f;
+    --surface:   #111518;
+    --panel:     #161b20;
+    --border:    #1e2830;
+    --accent:    #00e5ff;
+    --warn:      #ff3d3d;
+    --ok:        #00e676;
+    --text:      #c8d6df;
+    --muted:     #4a6170;
+    --mono:      'Share Tech Mono', monospace;
+    --sans:      'Barlow', sans-serif;
+    --cond:      'Barlow Condensed', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── scanline overlay ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,229,255,0.015) 2px,
+      rgba(0,229,255,0.015) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* ── HEADER ── */
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 0 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 64px;
+    background: var(--surface);
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-icon {
+    width: 36px; height: 36px;
+    border: 2px solid var(--accent);
+    display: grid;
+    place-items: center;
+    position: relative;
+  }
+
+  .logo-icon::before, .logo-icon::after {
+    content: '';
+    position: absolute;
+    width: 8px; height: 8px;
+    background: var(--accent);
+  }
+  .logo-icon::before { top: 6px; left: 6px; }
+  .logo-icon::after  { bottom: 6px; right: 6px; }
+
+  .logo-inner {
+    width: 10px; height: 10px;
+    border: 2px solid var(--accent);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.4; transform: scale(0.8); }
+  }
+
+  .logo-text {
+    font-family: var(--cond);
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    color: #fff;
+    text-transform: uppercase;
+  }
+
+  .logo-text span { color: var(--accent); }
+
+  .header-meta {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    text-align: right;
+    line-height: 1.8;
+  }
+
+  /* ── MAIN LAYOUT ── */
+  main {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    height: calc(100vh - 64px);
+  }
+
+  /* ── LEFT PANEL ── */
+  .upload-panel {
+    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+  }
+
+  .panel-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--accent);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ── DROP ZONE ── */
+  .drop-zone {
+    border: 1px dashed var(--border);
+    border-radius: 2px;
+    min-height: 240px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    background: var(--panel);
+  }
+
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(0,229,255,0.03);
+  }
+
+  .drop-zone.drag-over { box-shadow: 0 0 30px rgba(0,229,255,0.1) inset; }
+
+  .drop-icon {
+    width: 60px; height: 60px;
+    border: 2px solid var(--muted);
+    display: grid;
+    place-items: center;
+    border-radius: 2px;
+    transition: border-color 0.2s;
+  }
+
+  .drop-zone:hover .drop-icon { border-color: var(--accent); }
+
+  .drop-icon svg { stroke: var(--muted); transition: stroke 0.2s; }
+  .drop-zone:hover .drop-icon svg { stroke: var(--accent); }
+
+  .drop-text {
+    font-size: 14px;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .drop-text strong { color: var(--text); display: block; margin-bottom: 4px; }
+
+  .preview-img {
+    max-width: 100%;
+    max-height: 240px;
+    object-fit: contain;
+    border-radius: 2px;
+    display: none;
+  }
+
+  /* ── BUTTONS ── */
+  .btn-scan {
+    width: 100%;
+    padding: 14px;
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.2s;
+  }
+
+  .btn-scan::before {
+    content: '';
+    position: absolute;
+    left: -100%;
+    top: 0; bottom: 0;
+    width: 100%;
+    background: rgba(0,229,255,0.08);
+    transition: left 0.3s ease;
+  }
+
+  .btn-scan:hover::before { left: 0; }
+  .btn-scan:hover { box-shadow: 0 0 20px rgba(0,229,255,0.2); }
+  .btn-scan:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* ── SCAN PROGRESS ── */
+  .scan-bar-wrap {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .scan-bar-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 2px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .scan-bar-track {
+    height: 2px;
+    background: var(--border);
+    overflow: hidden;
+  }
+
+  .scan-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    width: 0%;
+    transition: width 0.1s linear;
+    box-shadow: 0 0 8px var(--accent);
+  }
+
+  /* ── RIGHT PANEL ── */
+  .result-panel {
+    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    overflow-y: auto;
+    background: var(--bg);
+  }
+
+  /* ── VERDICT CARD ── */
+  .verdict-card {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    padding: 28px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .verdict-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--muted);
+    transition: background 0.4s;
+  }
+
+  .verdict-card.defective::before { background: var(--warn); }
+  .verdict-card.good::before      { background: var(--ok); }
+
+  .verdict-status {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  .verdict-label {
+    font-family: var(--cond);
+    font-size: 52px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    color: var(--muted);
+    transition: color 0.4s;
+    line-height: 1;
+  }
+
+  .verdict-card.defective .verdict-label { color: var(--warn); }
+  .verdict-card.good      .verdict-label { color: var(--ok); }
+
+  .verdict-confidence {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 12px;
+  }
+
+  /* ── METRICS GRID ── */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .metric-cell {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    padding: 16px;
+  }
+
+  .metric-key {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .metric-val {
+    font-family: var(--cond);
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  /* ── HEATMAP ── */
+  .heatmap-section { display: none; }
+
+  .heatmap-img {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+  }
+
+  /* ── IDLE STATE ── */
+  .idle-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 16px;
+    color: var(--muted);
+  }
+
+  .idle-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    opacity: 0.3;
+  }
+
+  .idle-cell {
+    width: 28px; height: 28px;
+    border: 1px solid var(--border);
+    animation: blink 3s ease-in-out infinite;
+  }
+
+  .idle-cell:nth-child(3n)  { animation-delay: 0.5s; }
+  .idle-cell:nth-child(5n)  { animation-delay: 1.2s; }
+  .idle-cell:nth-child(7n)  { animation-delay: 1.8s; }
+
+  @keyframes blink {
+    0%, 100% { background: transparent; }
+    50%       { background: rgba(0,229,255,0.1); }
+  }
+
+  .idle-text {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-align: center;
+    line-height: 1.8;
+  }
+
+  /* ── LOG TERMINAL ── */
+  .log-terminal {
+    border: 1px solid var(--border);
+    background: #0d1114;
+    padding: 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.8;
+    max-height: 140px;
+    overflow-y: auto;
+  }
+
+  .log-line { display: flex; gap: 10px; }
+  .log-time { color: var(--accent); opacity: 0.5; flex-shrink: 0; }
+  .log-msg  { color: var(--text); }
+  .log-msg.err { color: var(--warn); }
+  .log-msg.ok  { color: var(--ok); }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; height: auto; }
+    .upload-panel { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+
+  /* ── hidden file input ── */
+  #file-input { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon"><div class="logo-inner"></div></div>
+    <div class="logo-text">Defect<span>Scan</span></div>
+  </div>
+  <div class="header-meta">
+    MODEL: MobileNetV2 · MVTec-AD<br>
+    TASK: Manufacturing QC
+  </div>
+</header>
+
+<main>
+  <!-- ── LEFT: UPLOAD ── -->
+  <section class="upload-panel">
+    <div class="panel-label">Input — Surface Image</div>
+
+    <div class="drop-zone" id="drop-zone">
+      <img class="preview-img" id="preview-img" alt="preview">
+      <div class="drop-icon" id="drop-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="1"/>
+          <circle cx="8.5" cy="8.5" r="1.5"/>
+          <polyline points="21 15 16 10 5 21"/>
+        </svg>
+      </div>
+      <div class="drop-text" id="drop-text">
+        <strong>Drop image or click to upload</strong>
+        PNG · JPG · BMP · TIFF
+      </div>
+    </div>
+
+    <input type="file" id="file-input" accept=".png,.jpg,.jpeg,.bmp,.tiff">
+
+    <div class="scan-bar-wrap" id="scan-bar">
+      <div class="scan-bar-label">
+        <span>SCANNING</span>
+        <span id="scan-pct">0%</span>
+      </div>
+      <div class="scan-bar-track"><div class="scan-bar-fill" id="scan-fill"></div></div>
+    </div>
+
+    <button class="btn-scan" id="btn-scan" disabled>[ INITIATE SCAN ]</button>
+
+    <!-- Log terminal -->
+    <div class="panel-label">System Log</div>
+    <div class="log-terminal" id="log-terminal">
+      <div class="log-line">
+        <span class="log-time">00:00</span>
+        <span class="log-msg">System ready. Awaiting image input.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── RIGHT: RESULTS ── -->
+  <section class="result-panel">
+    <div class="panel-label">Analysis Output</div>
+
+    <!-- Idle state -->
+    <div class="idle-state" id="idle-state">
+      <div class="idle-grid">
+        <div class="idle-cell"></div><div class="idle-cell"></div><div class="idle-cell"></div>
+        <div class="idle-cell"></div><div class="idle-cell"></div><div class="idle-cell"></div>
+        <div class="idle-cell"></div><div class="idle-cell"></div><div class="idle-cell"></div>
+        <div class="idle-cell"></div><div class="idle-cell"></div><div class="idle-cell"></div>
+        <div class="idle-cell"></div><div class="idle-cell"></div><div class="idle-cell"></div>
+      </div>
+      <div class="idle-text">
+        STANDBY<br>Upload an image to begin inspection
+      </div>
+    </div>
+
+    <!-- Results (hidden until prediction) -->
+    <div id="results-container" style="display:none; display:flex; flex-direction:column; gap:20px; display:none;">
+
+      <!-- Verdict -->
+      <div class="verdict-card" id="verdict-card">
+        <div class="verdict-status">INSPECTION VERDICT</div>
+        <div class="verdict-label" id="verdict-label">—</div>
+        <div class="verdict-confidence" id="verdict-conf"></div>
+      </div>
+
+      <!-- Metrics -->
+      <div class="metrics-grid">
+        <div class="metric-cell">
+          <div class="metric-key">Confidence</div>
+          <div class="metric-val" id="m-conf">—</div>
+        </div>
+        <div class="metric-cell">
+          <div class="metric-key">Defect Prob.</div>
+          <div class="metric-val" id="m-prob">—</div>
+        </div>
+        <div class="metric-cell">
+          <div class="metric-key">Model</div>
+          <div class="metric-val" style="font-size:14px; padding-top:4px;">MobileNetV2</div>
+        </div>
+        <div class="metric-cell">
+          <div class="metric-key">Dataset</div>
+          <div class="metric-val" style="font-size:14px; padding-top:4px;">MVTec-AD</div>
+        </div>
+      </div>
+
+      <!-- Grad-CAM Heatmap -->
+      <div class="heatmap-section" id="heatmap-section">
+        <div class="panel-label" style="margin-bottom:12px;">Grad-CAM Defect Localisation</div>
+        <img class="heatmap-img" id="heatmap-img" alt="Grad-CAM heatmap">
+      </div>
+
+    </div>
+  </section>
+</main>
+
+<script>
+  const dropZone   = document.getElementById('drop-zone');
+  const fileInput  = document.getElementById('file-input');
+  const previewImg = document.getElementById('preview-img');
+  const dropIcon   = document.getElementById('drop-icon');
+  const dropText   = document.getElementById('drop-text');
+  const btnScan    = document.getElementById('btn-scan');
+  const scanBar    = document.getElementById('scan-bar');
+  const scanFill   = document.getElementById('scan-fill');
+  const scanPct    = document.getElementById('scan-pct');
+  const logTerm    = document.getElementById('log-terminal');
+
+  const idleState      = document.getElementById('idle-state');
+  const resultsContainer = document.getElementById('results-container');
+  const verdictCard    = document.getElementById('verdict-card');
+  const verdictLabel   = document.getElementById('verdict-label');
+  const verdictConf    = document.getElementById('verdict-conf');
+  const mConf          = document.getElementById('m-conf');
+  const mProb          = document.getElementById('m-prob');
+  const heatmapSection = document.getElementById('heatmap-section');
+  const heatmapImg     = document.getElementById('heatmap-img');
+
+  let selectedFile = null;
+
+  function log(msg, type = '') {
+    const now = new Date();
+    const t   = `${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+    const line = document.createElement('div');
+    line.className = 'log-line';
+    line.innerHTML = `<span class="log-time">${t}</span><span class="log-msg ${type}">${msg}</span>`;
+    logTerm.appendChild(line);
+    logTerm.scrollTop = logTerm.scrollHeight;
+  }
+
+  // Click to open file dialog
+  dropZone.addEventListener('click', () => fileInput.click());
+
+  // Drag events
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  });
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) handleFile(fileInput.files[0]);
+  });
+
+  function handleFile(file) {
+    selectedFile = file;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      previewImg.src = ev.target.result;
+      previewImg.style.display = 'block';
+      dropIcon.style.display   = 'none';
+      dropText.style.display   = 'none';
+    };
+    reader.readAsDataURL(file);
+    btnScan.disabled = false;
+    log(`Image loaded: ${file.name} (${(file.size/1024).toFixed(1)} KB)`);
+  }
+
+  // ── SCAN ──
+  btnScan.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    btnScan.disabled = true;
+    scanBar.style.display = 'flex';
+    log('Initiating defect scan...');
+
+    // Animate progress bar
+    let pct = 0;
+    const interval = setInterval(() => {
+      pct = Math.min(pct + Math.random() * 8, 90);
+      scanFill.style.width  = pct + '%';
+      scanPct.textContent   = Math.round(pct) + '%';
+    }, 100);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      log('Sending to MobileNetV2 inference engine...');
+      const res  = await fetch('/predict', { method: 'POST', body: formData });
+      const data = await res.json();
+
+      clearInterval(interval);
+      scanFill.style.width = '100%';
+      scanPct.textContent  = '100%';
+
+      setTimeout(() => {
+        scanBar.style.display = 'none';
+        scanFill.style.width  = '0%';
+      }, 600);
+
+      if (data.success) {
+        showResult(data);
+        log(`Scan complete → ${data.label.toUpperCase()} (${data.confidence}% confidence)`,
+            data.label === 'defective' ? 'err' : 'ok');
+      } else {
+        log('Error: ' + (data.error || 'Unknown'), 'err');
+      }
+
+    } catch (err) {
+      clearInterval(interval);
+      log('Network error: ' + err.message, 'err');
+    }
+
+    btnScan.disabled = false;
+  });
+  function showResult(data) {
+    idleState.style.display = 'none';
+    resultsContainer.style.display = 'flex';
+
+    const isDefective = data.label === 'defective';
+
+    verdictCard.className = 'verdict-card ' + data.label;
+    verdictLabel.textContent = data.label.toUpperCase();
+    verdictConf.textContent = `Confidence: ${data.confidence}%`;
+
+    mConf.textContent = data.confidence + '%';
+
+    console.log("API Response:", data);   // <-- ADD THIS LINE
+
+    mProb.textContent = data.defect_probability + '%';
+
+    if (data.heatmap_b64) {
+        heatmapImg.src = 'data:image/png;base64,' + data.heatmap_b64;
+        heatmapSection.style.display = 'block';
+    }
+}
+</script>
+</body>
+</html>

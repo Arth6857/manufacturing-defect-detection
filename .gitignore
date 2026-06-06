@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual Environment
+venv/
+.env
+
+# Dataset
+data/
+data/mvtec/
+data/mvtec_raw/
+
+# Models
+models/*.keras
+
+# Logs
+logs/
+
+# TensorBoard
+events.out.*
+
+# Mac
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Results
+results/*.png
+results/*.json
