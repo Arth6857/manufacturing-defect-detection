@@ -12,7 +12,8 @@ data/mvtec/
 data/mvtec_raw/
 
 # Models
-models/*.keras
+models/best_model_phase1.keras
+models/best_model_phase2.keras
 
 # Logs
 logs/
